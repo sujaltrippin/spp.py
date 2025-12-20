@@ -12,8 +12,6 @@ from datetime import datetime
 import pytz
 import gspread
 from googleapiclient.http import MediaFileUpload
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.oauth2.credentials import Credentials
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select, WebDriverWait
@@ -22,6 +20,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException
 import time
+from google.oauth2 import service_account
 
 # Load environment variables
 load_dotenv()
@@ -30,34 +29,17 @@ now_ist = datetime.now(ist)
 
 with open("credentials.json", "w") as f:
     f.write(os.getenv("GOOGLE_SHEET_CONNECTOR"))
-    
-with open("token.json", "w") as f:
-    f.write(os.getenv("TOKEN"))
-    
+
 # Google Sheets Auth
 scope = ["https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets"]
 
 
-def get_oauth_credentials():
-    creds = None
+creds = service_account.Credentials.from_service_account_file(
+    "credentials.json",
+    scopes=scope
+)
 
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", scope)
-
-    if not creds or not creds.valid:
-        flow = InstalledAppFlow.from_client_secrets_file(
-            "oauth.json",
-            scope
-        )
-        creds = flow.run_local_server(port=0)
-
-        with open("token.json", "w") as token:
-            token.write(creds.to_json())
-
-    return creds
-
-creds = get_oauth_credentials()
 gs_client = gspread.authorize(creds)    
 drive_service = build('drive', 'v3', credentials=creds)
 sheets_service = build("sheets", "v4", credentials=creds)
@@ -87,7 +69,8 @@ def upload_to_drive(file_path, drive_folder_id):
     uploaded_file = drive_service.files().create(
         body=file_metadata,
         media_body=media,
-        fields='id, name'
+        fields='id, name',
+        supportsAllDrives=True
     ).execute()
 
     return uploaded_file

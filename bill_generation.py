@@ -181,7 +181,7 @@ def create_invoice_pdf(srno, booking_id, vendor_name, property_name, amount, out
 # ------------------ Setup Driver (HEADLESS) ------------------
 def setup_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
+    # chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
@@ -322,7 +322,7 @@ def log_expense(driver,srno, booking_id, vendor, property_name, amount, sub_desc
     # Expense Type
     driver.find_element(By.ID, "select2-expensetype-container").click()
     search = driver.find_element(By.CLASS_NAME, "select2-search__field")
-    search.send_keys("f&b")
+    search.send_keys("F&B")
     search.send_keys(Keys.RETURN)
     # Expense Head
     driver.find_element(By.ID, "select2-expenshead-container").click()
@@ -343,6 +343,7 @@ def log_expense(driver,srno, booking_id, vendor, property_name, amount, sub_desc
     # Cost bearer
     # Select(driver.find_element(By.NAME, "cost_bearer")).select_by_visible_text("VISTA")
     # Cost bearer (VISTA → fallback to SV Managed)
+    time.sleep(1)
     select = Select(driver.find_element(By.NAME, "cost_bearer"))
 
     vista_option = None
@@ -355,16 +356,30 @@ def log_expense(driver,srno, booking_id, vendor, property_name, amount, sub_desc
         elif text == "SV Managed":
             sv_option = opt
 
+    # Decision logic
     if vista_option and vista_option.is_enabled():
-        select.select_by_visible_text("VISTA")
+        vista_option.click()
     elif sv_option and sv_option.is_enabled():
-        select.select_by_visible_text("SV Managed")
+        sv_option.click()
     else:
         raise Exception("No valid cost bearer available (VISTA / SV Managed)")
         # sheet logs ERROR
 
     driver.find_element(By.ID, "invoice_number").send_keys("1")
-    driver.find_element(By.ID, "bill_date").send_keys(now_ist.strftime("%d-%m-%Y"))
+    # driver.find_element(By.ID, "bill_date").send_keys(now_ist.strftime("%Y-%m-%d"))
+    d = now_ist  # your datetime (IST)
+
+    driver.execute_script("""
+    const el = document.getElementById('bill_date');
+
+    // Create date WITHOUT timezone shift
+    const fixedDate = new Date(Date.UTC(arguments[0], arguments[1]-1, arguments[2]));
+
+    el.valueAsDate = fixedDate;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    """, d.year, d.month, d.day)
+
     # Booking ID
     driver.find_element(By.ID, "select2-bookingid_expenses-container").click()
     search = driver.find_element(By.CLASS_NAME, "select2-search__field")

@@ -76,14 +76,14 @@ def upload_to_drive(file_path, drive_folder_id):
     return uploaded_file
 
 
-def create_invoice_pdf(booking_id, vendor_name, property_name, amount, output_folder):
+def create_invoice_pdf(srno, booking_id, vendor_name, property_name, amount, output_folder):
     """
     Create a StayVista invoice PDF for a single booking
     """
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    filename = os.path.join(output_folder, f"{booking_id}.pdf")
+    filename = os.path.join(output_folder, f"{srno}_{booking_id}.pdf")
     doc = SimpleDocTemplate(filename, pagesize=A4)
     styles = getSampleStyleSheet()
 
@@ -226,10 +226,10 @@ def login_to_stayvista(driver, username, password):
             EC.element_to_be_clickable((By.ID, "loginViaPasswordBtn"))
         ).click()
         WebDriverWait(driver, 20).until(EC.url_contains("dashboard"))
-        print(":white_tick: Login successful")
+        print("✅ Login successful")
         return True
     except Exception as e:
-        print(":x: Login failed:", e)
+        print("❌ Login failed:", e)
         driver.save_screenshot("login_error.png")
         return False
     
@@ -257,6 +257,15 @@ def handle_duplicate_popup(driver, timeout=6):
     except TimeoutException:
         return False
     
+def wait_for_redirect(driver, old_url, timeout=10):
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: d.current_url != old_url
+        )
+        return True
+    except TimeoutException:
+        return False
+        
 # ------------------ Select Vendor ------------------
 def select_vendor(driver, vendor_name):
     driver.find_element(By.ID, "select2-vendor_name-container").click()
@@ -276,17 +285,18 @@ def set_tax_percentage(driver):
     ).select_by_visible_text("0")
     
 # ------------------ Upload Bill ------------------
-def upload_bill(driver, booking_id, bills_folder):
+def upload_bill(driver,srno ,booking_id, bills_folder):
     if not bills_folder:
         return
-    path = os.path.join(bills_folder, f"{booking_id}.pdf")
+    path = os.path.join(bills_folder, f"{srno}_{booking_id}.pdf")
+    path = os.path.abspath(path)
     if not os.path.exists(path):
         print(f":x: Bill missing: {path}")
         return
     driver.find_element(By.ID, "bill").send_keys(path)
     
 # ------------------ Log Expense ------------------
-def log_expense(driver, booking_id, vendor, property_name, amount, sub_desc, bills_folder):
+def log_expense(driver,srno, booking_id, vendor, property_name, amount, sub_desc, bills_folder):
     # Expense Type
     driver.find_element(By.ID, "select2-expensetype-container").click()
     search = driver.find_element(By.CLASS_NAME, "select2-search__field")
@@ -309,7 +319,28 @@ def log_expense(driver, booking_id, vendor, property_name, amount, sub_desc, bil
     time.sleep(0.5)
     search.send_keys(Keys.RETURN)
     # Cost bearer
-    Select(driver.find_element(By.NAME, "cost_bearer")).select_by_visible_text("VISTA")
+    # Select(driver.find_element(By.NAME, "cost_bearer")).select_by_visible_text("VISTA")
+    # Cost bearer (VISTA → fallback to SV Managed)
+    select = Select(driver.find_element(By.NAME, "cost_bearer"))
+
+    vista_option = None
+    sv_option = None
+
+    for opt in select.options:
+        text = opt.text.strip()
+        if text == "VISTA":
+            vista_option = opt
+        elif text == "SV Managed":
+            sv_option = opt
+
+    if vista_option and vista_option.is_enabled():
+        select.select_by_visible_text("VISTA")
+    elif sv_option and sv_option.is_enabled():
+        select.select_by_visible_text("SV Managed")
+    else:
+        raise Exception("No valid cost bearer available (VISTA / SV Managed)")
+        # sheet logs ERROR
+
     driver.find_element(By.ID, "invoice_number").send_keys("1")
     driver.find_element(By.ID, "bill_date").send_keys(now_ist.strftime("%d-%m-%Y"))
     # Booking ID
@@ -321,14 +352,20 @@ def log_expense(driver, booking_id, vendor, property_name, amount, sub_desc, bil
     driver.find_element(By.NAME, "quantity[]").send_keys("1")
     driver.find_element(By.NAME, "rate_per_unit[]").send_keys(amount)
     set_tax_percentage(driver)
-    upload_bill(driver, booking_id, bills_folder)
+    upload_bill(driver,srno ,booking_id, bills_folder)
     submit = WebDriverWait(driver, 10).until(
         EC.element_to_be_clickable((By.NAME, "submitButton"))
     )
+    old_url = driver.current_url
     driver.execute_script("arguments[0].click();", submit)
+    if wait_for_redirect(driver, old_url, timeout=8):
+        return True  # ✅ success 
+    if handle_duplicate_popup(driver):
+        # After clicking YES, redirect MUST happen
+        if wait_for_redirect(driver, old_url, timeout=8):
+            return True  
     # :white_tick: Handle duplicate popup
-    handle_duplicate_popup(driver)
-    WebDriverWait(driver, 15).until(EC.url_contains("expenses"))
+    # WebDriverWait(driver, 15).until(EC.url_contains("expenses"))
 
 def upload_expenses(driver, bills_data, bills_folder):
     for row in bills_data:
@@ -337,6 +374,7 @@ def upload_expenses(driver, bills_data, bills_folder):
 
         log_expense(
             driver,
+            row["sr_no"],
             row["booking_id"],
             row["vendor"],
             row["property_name"],
@@ -350,7 +388,7 @@ def upload_expenses(driver, bills_data, bills_folder):
     
 
 def generate_pdfs_from_gsheet(output_folder):
-    worksheet = gs_client.open("test data exp").worksheet("a")
+    worksheet = gs_client.open("test data exp").worksheet("a") #Change INput sheet name here
     rows = worksheet.get_all_values()
 
     headers = rows[0]
@@ -361,15 +399,17 @@ def generate_pdfs_from_gsheet(output_folder):
     for row in data_rows:
         row += [""] * (4 - len(row))
 
-        booking_id    = row[0].strip()
-        vendor_name   = row[1].strip()
-        property_name = row[2].strip()
-        amount        = row[3].strip()
+        srno          = row[0].strip()
+        booking_id    = row[1].strip()
+        vendor_name   = row[2].strip()
+        property_name = row[3].strip()
+        amount        = row[4].strip()
 
         if not booking_id or not vendor_name or not amount:
             continue
 
         create_invoice_pdf(
+            srno,
             booking_id,
             vendor_name,
             property_name,
@@ -378,6 +418,7 @@ def generate_pdfs_from_gsheet(output_folder):
         )
 
         bill_rows.append({
+            "sr_no": srno,
             "booking_id": booking_id,
             "vendor": vendor_name,
             "property_name": property_name,

@@ -295,6 +295,28 @@ def upload_bill(driver,srno ,booking_id, bills_folder):
         return
     driver.find_element(By.ID, "bill").send_keys(path)
     
+def move_row_to_log(gs_client, srno):
+    ss = gs_client.open("test data exp")
+    source_ws = ss.worksheet("a")
+    log_ws = ss.worksheet("log")
+
+    rows = source_ws.get_all_values()
+
+    for idx, row in enumerate(rows[1:], start=2):  # row index in sheet
+        if row and row[0].strip() == str(srno):
+            # Append to log sheet
+            log_ws.append_row(row, value_input_option="USER_ENTERED")
+
+            # Remove from source sheet
+            source_ws.delete_rows(idx)
+
+            print(f"Moved SRNO {srno} from 'a' → 'log'")
+            return True
+
+    print(f"SRNO {srno} not found in sheet 'a'")
+    return False
+
+    
 # ------------------ Log Expense ------------------
 def log_expense(driver,srno, booking_id, vendor, property_name, amount, sub_desc, bills_folder):
     # Expense Type
@@ -366,13 +388,15 @@ def log_expense(driver,srno, booking_id, vendor, property_name, amount, sub_desc
             return True  
     # :white_tick: Handle duplicate popup
     # WebDriverWait(driver, 15).until(EC.url_contains("expenses"))
+    return False
 
-def upload_expenses(driver, bills_data, bills_folder):
+def upload_expenses(driver, bills_data, bills_folder, gs_client):
     for row in bills_data:
         if not navigate_to_expenses_add_page(driver):
+            print(f"Could not open expense page for {row['booking_id']}")
             continue
 
-        log_expense(
+        success = log_expense(
             driver,
             row["sr_no"],
             row["booking_id"],
@@ -383,9 +407,14 @@ def upload_expenses(driver, bills_data, bills_folder):
             bills_folder
         )
 
-        print(f"✅ Expense logged for {row['booking_id']}")
+        if success:
+            move_row_to_log(gs_client, row["sr_no"])
+            print(f"✅ Expense logged for {row['booking_id']}")
+        else:
+            print(f"⚠️ Expense FAILED for {row['booking_id']} (SRNO {row['sr_no']})")
+
         time.sleep(2)
-    
+
 
 def generate_pdfs_from_gsheet(output_folder):
     worksheet = gs_client.open("test data exp").worksheet("a") #Change INput sheet name here
@@ -451,7 +480,7 @@ def main():
             return
 
         # 3 Upload expenses
-        upload_expenses(driver, bills_data, bills_folder)
+        upload_expenses(driver, bills_data, bills_folder, gs_client)
 
     finally:
         driver.quit()

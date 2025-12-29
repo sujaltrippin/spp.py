@@ -34,3 +34,11 @@ jobs:
         run: |
           echo "Triggered from: ${{ github.event.inputs.source }}"
           python bill_generation.py
+      
+      - name: Upload Selenium debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selenium-debug
+          path: |
+            login_error.png

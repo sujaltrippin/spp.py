@@ -84,92 +84,134 @@ def create_invoice_pdf(srno, booking_id, vendor_name, property_name, amount, out
         os.makedirs(output_folder)
 
     filename = os.path.join(output_folder, f"{srno}_{booking_id}.pdf")
-    doc = SimpleDocTemplate(filename, pagesize=A4)
-    styles = getSampleStyleSheet()
-
-    # Create custom styles with the registered font
-    normal_style = ParagraphStyle(
-        'CustomNormal',
-        parent=styles['Normal'],
-        fontName=DEFAULT_FONT,
-        fontSize=10,
-        leading=12
+    doc = SimpleDocTemplate(
+        filename,
+        pagesize=A4,
+        leftMargin=40,
+        rightMargin=40,
+        topMargin=40,
+        bottomMargin=40
     )
-
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Title'],
-        fontName=DEFAULT_FONT,
-        fontSize=18,
-        spaceAfter=20,
-        alignment=1  # Center alignment
+    # ---------- PASTEL PEACH THEME ----------
+    PEACH_BG = colors.HexColor("#FFF1E6")
+    PEACH_DARK = colors.HexColor("#E07A5F")
+    PEACH_LIGHT = colors.HexColor("#FDE8D7")
+    BORDER = colors.HexColor("#E6A57E")
+    TEXT = colors.HexColor("#333333")
+    CONTENT_WIDTH = 420
+    # ---------- STYLES ----------
+    title = ParagraphStyle(
+        "Title",
+        fontName="Helvetica-Bold",
+        fontSize=22,
+        textColor=PEACH_DARK,
+        alignment=1
     )
-
-    heading2_style = ParagraphStyle(
-        'CustomHeading2',
-        parent=styles['Heading2'],
-        fontName=DEFAULT_FONT,
-        fontSize=12,
-        spaceAfter=6
-    )
-
+    # styles = getSampleStyleSheet()
     vendor_style = ParagraphStyle(
-        'VendorStyle',
-        parent=styles['Normal'],
-        fontName=DEFAULT_FONT,
-        fontSize=14,
-        spaceAfter=12,
-        spaceBefore=6
+        "Vendor",
+        fontName="Helvetica-Bold",
+        fontSize=13,
+        alignment=1,
+        textColor=TEXT
     )
-
+    property_style = ParagraphStyle(
+        "Property",
+        fontName="Helvetica",
+        fontSize=10,
+        alignment=1,
+        textColor=colors.grey
+    )
+    normal = ParagraphStyle(
+        "Normal",
+        fontName="Helvetica",
+        fontSize=10,
+        textColor=TEXT
+    )
+    footer_style = ParagraphStyle(
+        "Footer",
+        fontName="Helvetica",
+        fontSize=9,
+        alignment=1,
+        textColor=colors.grey
+    )
     elements = []
-
-    # Title
-    title = Paragraph("<b>Vista Invoice</b>", title_style)
-    elements.append(title)
-    elements.append(Spacer(1, 12))
-
-    # Bill To section
-    elements.append(Paragraph("<b>Payment to</b>", heading2_style))
-    elements.append(Paragraph(f"<b>{vendor_name}</b>", vendor_style))
-    elements.append(Paragraph(f"Property: {property_name}", normal_style))
-    elements.append(Spacer(1, 12))
-
-    # Table for invoice details
-    data = [
-        ["StayVista", "", "", ""],
-        ["ITEMS", "QTY.", "RATE", "AMOUNT"],
-        [f"Booking id {booking_id} - Cook Arranged", "1", f"Rs. {amount}", f"Rs. {amount}"]
+    # ---------------- MAIN CONTENT ----------------
+    content = []
+    # ---------------- HEADER ----------------
+    content.append(Paragraph("STAYVISTA", title))
+    content.append(Spacer(1, 6))
+    content.append(Paragraph("INVOICE", title))
+    content.append(Spacer(1, 20))
+    # ---------------- PAYMENT DETAILS ----------------
+    content.append(Paragraph(vendor_name, vendor_style))
+    content.append(Spacer(1, 4))
+    content.append(Paragraph(property_name, property_style))
+    content.append(Spacer(1, 4))
+    content.append(Paragraph(f"Booking ID: {booking_id}", property_style))
+    content.append(Spacer(1, 20))
+    # ---------------- ITEM TABLE ----------------
+    amt = f"Rs. {amount}"
+    items = [
+        ["Description", "Qty", "Rate", "Amount"],
+        [f"Cook Arranged – Booking {booking_id}", "1", amt, amt]
     ]
-
-    table = Table(data, colWidths=[250, 50, 100, 100])
-    table.setStyle(TableStyle([
-        ("SPAN", (0, 0), (-1, 0)),  # Span first row across all columns
-        ("BACKGROUND", (0, 1), (-1, 1), colors.lightgrey),
-        ("ALIGN", (0, 0), (-1, 0), "CENTER"),  # Center first row
-        ("ALIGN", (1, 1), (-1, -1), "CENTER"),  # Center quantity, rate, amount
-        ("ALIGN", (0, 1), (0, 1), "CENTER"),  # Center "ITEMS" header
-        ("FONTNAME", (0, 0), (-1, -1), DEFAULT_FONT),
-        ("FONTSIZE", (0, 0), (-1, 0), 12),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
-        ("BOX", (0, 0), (-1, -1), 1, colors.black),
-        ("GRID", (0, 1), (-1, -1), 0.5, colors.grey),
-        ("FONTNAME", (0, 1), (-1, 1), DEFAULT_FONT + "-Bold" if DEFAULT_FONT == 'DejaVu' else 'Helvetica-Bold'),
+    item_table = Table(items, colWidths=[220, 50, 75, 75])
+    item_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), PEACH_DARK),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("BACKGROUND", (0, 1), (-1, -1), PEACH_LIGHT),
+        ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
+        ("ALIGN", (1, 1), (1, -1), "CENTER"),
+        ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
     ]))
-    elements.append(table)
-    elements.append(Spacer(1, 20))
-
-    # Terms and conditions
-    elements.append(Paragraph("<b>StayVista</b>", heading2_style))
-    elements.append(Paragraph("*.Food & beverage Expenses.", normal_style))
-    elements.append(Spacer(1, 12))
-
-    # Amount details
-    elements.append(Paragraph(f"<b>TAXABLE AMOUNT Rs. {amount}</b>", normal_style))
-    elements.append(Paragraph(f"<b>TOTAL AMOUNT Rs. {amount}</b>", normal_style))
-    elements.append(Paragraph("<b>Received Amount Rs. 0</b>", normal_style))
-
-    # Build PDF
+    content.append(item_table)
+    content.append(Spacer(1, 22))
+    # ---------------- TOTALS ----------------
+    totals = [
+        ["Subtotal", amt],
+        ["Tax", "Rs. 0"],
+        ["Total Amount", amt],
+        ["Amount Paid", "Rs. 0"]
+    ]
+    totals_table = Table(
+        totals,
+        colWidths=[CONTENT_WIDTH * 0.6, CONTENT_WIDTH * 0.4]
+    )
+    totals_table.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 1, PEACH_DARK),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, BORDER),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
+        ("BACKGROUND", (0, 2), (-1, 3), PEACH_LIGHT),
+        ("FONTNAME", (0, 2), (-1, 3), "Helvetica-Bold"),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    content.append(totals_table)
+    content.append(Spacer(1, 18))
+    # ---------------- FOOTER ----------------
+    content.append(Paragraph(
+        "This is a system-generated invoice. No signature is required.",
+        footer_style
+    ))
+    # ---------------- PEACH BACKGROUND WRAPPER ----------------
+    wrapper = Table([[content]], colWidths=[CONTENT_WIDTH])
+    wrapper.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), PEACH_BG),
+        ("BOX", (0, 0), (-1, -1), 1, BORDER),
+        ("LEFTPADDING", (0, 0), (-1, -1), 20),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 20),
+        ("TOPPADDING", (0, 0), (-1, -1), 20),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 20),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER")
+    ]))
+    elements.append(wrapper)
     doc.build(elements)
     print(f"Created invoice PDF: {filename}")
     # ---- Upload to Drive ----
@@ -181,7 +223,7 @@ def create_invoice_pdf(srno, booking_id, vendor_name, property_name, amount, out
 # ------------------ Setup Driver (HEADLESS) ------------------
 def setup_driver():
     chrome_options = Options()
-    # chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
@@ -296,9 +338,9 @@ def upload_bill(driver,srno ,booking_id, bills_folder):
     driver.find_element(By.ID, "bill").send_keys(path)
     
 def move_row_to_log(gs_client, srno):
-    ss = gs_client.open("test data exp")
-    source_ws = ss.worksheet("a")
-    log_ws = ss.worksheet("log")
+    ss = gs_client.open("Bill verification 2025")
+    source_ws = ss.worksheet("Input Dump")
+    log_ws = ss.worksheet("Admin logs")
 
     rows = source_ws.get_all_values()
 
@@ -310,10 +352,10 @@ def move_row_to_log(gs_client, srno):
             # Remove from source sheet
             source_ws.delete_rows(idx)
 
-            print(f"Moved SRNO {srno} from 'a' → 'log'")
+            print(f"Moved SRNO {srno} from 'Input Dump' → 'Admin logs'")
             return True
 
-    print(f"SRNO {srno} not found in sheet 'a'")
+    print(f"SRNO {srno} not found in sheet 'Input Dump'")
     return False
 
     
@@ -432,7 +474,7 @@ def upload_expenses(driver, bills_data, bills_folder, gs_client):
 
 
 def generate_pdfs_from_gsheet(output_folder):
-    worksheet = gs_client.open("test data exp").worksheet("a") #Change INput sheet name here
+    worksheet = gs_client.open("Bill verification 2025").worksheet("Input Dump") #Change INput sheet name here
     rows = worksheet.get_all_values()
 
     headers = rows[0]

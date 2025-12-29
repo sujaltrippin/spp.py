@@ -27,6 +27,10 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run script
+        env:
+          TOKEN: ${{ secrets.TOKEN }}
+          GOOGLE_SHEET_CONNECTOR: ${{ secrets.GOOGLE_SHEET_CONNECTOR }}
+          SCRIPT_PROJECTID: ${{ secrets.SCRIPT_PROJECTID }}
         run: |
           echo "Triggered from: ${{ github.event.inputs.source }}"
           python bill_generation.py

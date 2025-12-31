@@ -223,7 +223,7 @@ def create_invoice_pdf(srno, booking_id, vendor_name, property_name, amount, out
 # ------------------ Setup Driver (HEADLESS) ------------------
 def setup_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
+    # chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
@@ -516,8 +516,8 @@ def generate_pdfs_from_gsheet(output_folder):
     
 
 def main():
-    username = "sujal.uttekar@stayvista.com"
-    password = "Sujal@2025"
+    username = os.getenv("EMAIL")
+    password = os.getenv("PASSWORD")
     bills_folder = "/tmp/stayvista_invoices_pdf"
 
     os.makedirs(bills_folder, exist_ok=True)

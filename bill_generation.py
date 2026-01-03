@@ -254,7 +254,7 @@ def setup_driver():
         "Network.setExtraHTTPHeaders",
         {
             "headers": {
-                "X-AM-Automation-Key": os.getenv("X-AUTH-TOKEN")
+                "X-AM-Automation-Key": os.getenv("X_AUTH_TOKEN")
             }
         }
     )

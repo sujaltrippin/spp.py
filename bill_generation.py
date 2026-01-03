@@ -248,13 +248,14 @@ def setup_driver():
             """
         }
     )
-    
+    nilesh_token = os.getenv("X_AUTH_TOKEN")
+    print(nilesh_token)
     driver.execute_cdp_cmd("Network.enable", {})
     driver.execute_cdp_cmd(
         "Network.setExtraHTTPHeaders",
         {
             "headers": {
-                "X-AM-Automation-Key": os.getenv("X_AUTH_TOKEN")
+                "X-AM-Automation-Key": nilesh_token
             }
         }
     )

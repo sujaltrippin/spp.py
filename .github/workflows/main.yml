@@ -31,7 +31,7 @@ jobs:
           TOKEN: ${{ secrets.TOKEN }}
           GOOGLE_SHEET_CONNECTOR: ${{ secrets.GOOGLE_SHEET_CONNECTOR }}
           SCRIPT_PROJECTID: ${{ secrets.SCRIPT_PROJECTID }}
-          X-AUTH-TOKEN: ${{ secrets.X-AUTH-TOKEN }}
+          X_AUTH_TOKEN: ${{ secrets.X_AUTH_TOKEN }}
         run: |
           echo "Triggered from: ${{ github.event.inputs.source }}"
           python bill_generation.py

@@ -76,14 +76,14 @@ def upload_to_drive(file_path, drive_folder_id):
     return uploaded_file
 
 
-def create_invoice_pdf(srno, booking_id, vendor_name, property_name, amount, output_folder):
+def create_invoice_pdf(unqid, booking_id, vendor_name, property_name, amount, output_folder):
     """
     Create a StayVista invoice PDF for a single booking
     """
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    filename = os.path.join(output_folder, f"{srno}_{booking_id}.pdf")
+    filename = os.path.join(output_folder, f"{unqid}.pdf")
     doc = SimpleDocTemplate(
         filename,
         pagesize=A4,
@@ -223,7 +223,7 @@ def create_invoice_pdf(srno, booking_id, vendor_name, property_name, amount, out
 # ------------------ Setup Driver (HEADLESS) ------------------
 def setup_driver():
     chrome_options = Options()
-    # chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
@@ -248,32 +248,62 @@ def setup_driver():
             """
         }
     )
+    
+    driver.execute_cdp_cmd("Network.enable", {})
+    driver.execute_cdp_cmd(
+        "Network.setExtraHTTPHeaders",
+        {
+            "headers": {
+                "X-AM-Automation-Key": os.getenv("X-AUTH-TOKEN")
+            }
+        }
+    )
+    
     return driver
 
 # ------------------ Login ------------------
-def login_to_stayvista(driver, username, password):
-    print("Logging in...")
-    driver.get("https://admin.vistarooms.com/dashboard")
-    try:
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.NAME, "email"))
-        ).send_keys(username)
-        WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "loginViaPasswordBtn"))
-        ).click()
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.NAME, "password"))
-        ).send_keys(password)
-        WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "loginViaPasswordBtn"))
-        ).click()
-        WebDriverWait(driver, 20).until(EC.url_contains("dashboard"))
-        print("✅ Login successful")
-        return True
-    except Exception as e:
-        print("❌ Login failed:", e)
-        driver.save_screenshot("login_error.png")
-        return False
+def login_to_stayvista(driver, username, password, max_retries=5):
+    for attempt in range(1, max_retries + 1):
+        print(f"Login attempt {attempt}/{max_retries}")
+
+        try:
+            driver.get("https://admin.vistarooms.com/dashboard")
+
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.NAME, "email"))
+            ).clear()
+            driver.find_element(By.NAME, "email").send_keys(username)
+
+            WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "loginViaPasswordBtn"))
+            ).click()
+
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.NAME, "password"))
+            ).clear()
+            driver.find_element(By.NAME, "password").send_keys(password)
+
+            WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "loginViaPasswordBtn"))
+            ).click()
+
+            WebDriverWait(driver, 20).until(
+                EC.url_contains("dashboard")
+            )
+
+            print("✅ Login successful")
+            return True
+
+        except Exception as e:
+            print(f"❌ Login failed on attempt {attempt}: {e}")
+            driver.save_screenshot(f"login_error_attempt_{attempt}.png")
+
+            if attempt < max_retries:
+                time.sleep(3)  # wait before retry
+            else:
+                print("Max login attempts reached")
+
+    return False
     
 # ------------------ Navigate ------------------
 def navigate_to_expenses_add_page(driver):
@@ -327,61 +357,68 @@ def set_tax_percentage(driver):
     ).select_by_visible_text("0")
     
 # ------------------ Upload Bill ------------------
-def upload_bill(driver,srno ,booking_id, bills_folder):
+def upload_bill(driver,unqid ,booking_id, bills_folder):
     if not bills_folder:
+        print('no bill folder found...')
         return
-    path = os.path.join(bills_folder, f"{srno}_{booking_id}.pdf")
+    path = os.path.join(bills_folder, f"{unqid}.pdf")
     path = os.path.abspath(path)
+    path = os.path.normpath(path)
+    print(path)
     if not os.path.exists(path):
         print(f":x: Bill missing: {path}")
         return
     driver.find_element(By.ID, "bill").send_keys(path)
     
-def move_row_to_log(gs_client, srno):
-    ss = gs_client.open("Bill verification 2025")
-    source_ws = ss.worksheet("Input Dump")
-    log_ws = ss.worksheet("Admin logs")
+def move_row_to_log(gs_client, unqid):
+    ss = gs_client.open("vista logs")
+    source_ws = ss.worksheet("to be logged")
+    log_ws = ss.worksheet("admin logs")
 
     rows = source_ws.get_all_values()
 
     for idx, row in enumerate(rows[1:], start=2):  # row index in sheet
-        if row and row[0].strip() == str(srno):
+        if row and row[0].strip() == str(unqid):
             # Append to log sheet
             log_ws.append_row(row, value_input_option="USER_ENTERED")
 
             # Remove from source sheet
             source_ws.delete_rows(idx)
 
-            print(f"Moved SRNO {srno} from 'Input Dump' → 'Admin logs'")
+            print(f"Moved SRNO {unqid} from 'Input Dump' → 'Admin logs'")
             return True
 
-    print(f"SRNO {srno} not found in sheet 'Input Dump'")
+    print(f"SRNO {unqid} not found in sheet 'Input Dump'")
     return False
 
     
 # ------------------ Log Expense ------------------
-def log_expense(driver,srno, booking_id, vendor, property_name, amount, sub_desc, bills_folder):
+def log_expense(driver,unqid, booking_id, head, comment, vendor, property_name, amount, cost_bearer, bills_folder):
     # Expense Type
     driver.find_element(By.ID, "select2-expensetype-container").click()
     search = driver.find_element(By.CLASS_NAME, "select2-search__field")
     search.send_keys("F&B")
     search.send_keys(Keys.RETURN)
+    
     # Expense Head
     driver.find_element(By.ID, "select2-expenshead-container").click()
     search = driver.find_element(By.CLASS_NAME, "select2-search__field")
-    search.send_keys("Cook Arranged")
+    search.send_keys(head)
     time.sleep(0.5)
     search.send_keys(Keys.RETURN)
-    # Category
-    driver.find_element(By.ID, "expense_head_categoriespart").send_keys(sub_desc)
+    
+    # Category/Comment
+    driver.find_element(By.ID, "expense_head_categoriespart").send_keys(comment)
     # Vendor
     select_vendor(driver, vendor)
+    
     # Property
     driver.find_element(By.ID, "select2-expense_villa_list-container").click()
     search = driver.find_element(By.CLASS_NAME, "select2-search__field")
     search.send_keys(property_name)
-    time.sleep(0.5)
+    time.sleep(1)
     search.send_keys(Keys.RETURN)
+    
     # Cost bearer
     # Select(driver.find_element(By.NAME, "cost_bearer")).select_by_visible_text("VISTA")
     # Cost bearer (VISTA → fallback to SV Managed)
@@ -400,7 +437,7 @@ def log_expense(driver,srno, booking_id, vendor, property_name, amount, sub_desc
 
     # Decision logic
     if vista_option and vista_option.is_enabled():
-        vista_option.click()
+        driver.find_element(By.NAME, "cost_bearer").send_keys(cost_bearer)
     elif sv_option and sv_option.is_enabled():
         sv_option.click()
     else:
@@ -431,7 +468,7 @@ def log_expense(driver,srno, booking_id, vendor, property_name, amount, sub_desc
     driver.find_element(By.NAME, "quantity[]").send_keys("1")
     driver.find_element(By.NAME, "rate_per_unit[]").send_keys(amount)
     set_tax_percentage(driver)
-    upload_bill(driver,srno ,booking_id, bills_folder)
+    upload_bill(driver,unqid ,booking_id, bills_folder)
     submit = WebDriverWait(driver, 10).until(
         EC.element_to_be_clickable((By.NAME, "submitButton"))
     )
@@ -455,26 +492,28 @@ def upload_expenses(driver, bills_data, bills_folder, gs_client):
 
         success = log_expense(
             driver,
-            row["sr_no"],
+            row["unqid"],
             row["booking_id"],
+            row["head"],
+            row["comment"],
             row["vendor"],
             row["property_name"],
             row["amount"],
-            row["sub"],
+            row["cost_bearer"],
             bills_folder
         )
 
         if success:
-            move_row_to_log(gs_client, row["sr_no"])
+            move_row_to_log(gs_client, row["unqid"])
             print(f"✅ Expense logged for {row['booking_id']}")
         else:
-            print(f"⚠️ Expense FAILED for {row['booking_id']} (SRNO {row['sr_no']})")
+            print(f"⚠️ Expense FAILED for {row['booking_id']} (unqid {row['unqid']})")
 
         time.sleep(2)
 
 
 def generate_pdfs_from_gsheet(output_folder):
-    worksheet = gs_client.open("Bill verification 2025").worksheet("Input Dump") #Change INput sheet name here
+    worksheet = gs_client.open("vista logs").worksheet("to be logged") #Change INput sheet name here
     rows = worksheet.get_all_values()
 
     headers = rows[0]
@@ -485,17 +524,21 @@ def generate_pdfs_from_gsheet(output_folder):
     for row in data_rows:
         row += [""] * (4 - len(row))
 
-        srno          = row[0].strip()
-        booking_id    = row[1].strip()
-        vendor_name   = row[2].strip()
-        property_name = row[3].strip()
-        amount        = row[4].strip()
+        unqid          = row[0].strip()
+        booking_id     = row[1].strip()
+        head           = row[2].strip()
+        comment        = row[3].strip()
+        cost_bearer    = row[4].strip()
+        amount         = row[5].strip()
+        tax            = row[6].strip()
+        vendor_name    = row[7].strip()
+        property_name  = row[8].strip()
 
         if not booking_id or not vendor_name or not amount:
             continue
 
         create_invoice_pdf(
-            srno,
+            unqid,
             booking_id,
             vendor_name,
             property_name,
@@ -504,12 +547,14 @@ def generate_pdfs_from_gsheet(output_folder):
         )
 
         bill_rows.append({
-            "sr_no": srno,
+            "unqid": unqid,
             "booking_id": booking_id,
+            "head": head,
+            "comment": comment,
+            "cost_bearer": cost_bearer,
             "vendor": vendor_name,
             "property_name": property_name,
             "amount": amount,
-            "sub": f"Expense for booking {booking_id}"
         })
 
     return bill_rows

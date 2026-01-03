@@ -42,4 +42,6 @@ jobs:
         with:
           name: selenium-debug
           path: |
-            login_error.png
+            *.png
+            screenshots/**/*.png
+          if-no-files-found: warn

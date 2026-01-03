@@ -296,13 +296,20 @@ def login_to_stayvista(driver, username, password, max_retries=5):
             return True
 
         except Exception as e:
+            BASE_DIR = os.getcwd()
+            screenshot_name = f"login_error_attempt_{attempt}.png"
+            screenshot_path = os.path.join(BASE_DIR, screenshot_name)
+
+            driver.save_screenshot(screenshot_path)
+
+            print(f"Saved screenshot: {screenshot_path}")
             print(f"❌ Login failed on attempt {attempt}: {e}")
-            driver.save_screenshot(f"login_error_attempt_{attempt}.png")
 
             if attempt < max_retries:
-                time.sleep(3)  # wait before retry
+                time.sleep(3)
             else:
                 print("Max login attempts reached")
+
 
     return False
     

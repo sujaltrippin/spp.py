@@ -248,6 +248,7 @@ def setup_driver():
             """
         }
     )
+    print('Setting up drivers...')
     nilesh_token = os.getenv("X_AUTH_TOKEN")
     print(nilesh_token)
     driver.execute_cdp_cmd("Network.enable", {})
@@ -525,7 +526,7 @@ def generate_pdfs_from_gsheet(output_folder):
     rows = worksheet.get_all_values()
 
     headers = rows[0]
-    data_rows = rows[1:]
+    data_rows = rows[2:]
 
     bill_rows = []
 

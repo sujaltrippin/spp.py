@@ -256,7 +256,7 @@ def setup_driver():
         "Network.setExtraHTTPHeaders",
         {
             "headers": {
-                "X-AM-Automation-Key": nilesh_token
+                "- X-AM-Automation-Key": nilesh_token
             }
         }
     )

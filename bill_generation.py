@@ -573,6 +573,9 @@ def main():
     username = os.getenv("EMAIL")
     password = os.getenv("PASSWORD")
     bills_folder = "/tmp/stayvista_invoices_pdf"
+    
+    print(username)
+    print(password)
 
     os.makedirs(bills_folder, exist_ok=True)
 

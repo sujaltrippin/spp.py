@@ -400,98 +400,136 @@ def move_row_to_log(gs_client, unqid):
     print(f"SRNO {unqid} not found in sheet 'Input Dump'")
     return False
 
+
+def log(step):
+    print(f"➡️ {step}", flush=True)
+
+
+def select2_search(driver, container_id, value, timeout=25):
+    wait = WebDriverWait(driver, timeout)
+
+    log(f"Select2 open: {container_id}")
+    container = wait.until(EC.element_to_be_clickable((By.ID, container_id)))
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", container)
+    container.click()
+
+    search = wait.until(EC.visibility_of_element_located(
+        (By.CSS_SELECTOR, ".select2-container--open .select2-search__field")
+    ))
+    search.clear()
+    search.send_keys(value)
+    search.send_keys(Keys.RETURN)
     
 # ------------------ Log Expense ------------------
 def log_expense(driver,unqid, booking_id, head, comment, vendor, property_name, amount, cost_bearer, bills_folder):
-    # Expense Type
-    driver.find_element(By.ID, "select2-expensetype-container").click()
-    search = driver.find_element(By.CLASS_NAME, "select2-search__field")
-    search.send_keys("F&B")
-    search.send_keys(Keys.RETURN)
-    
-    # Expense Head
-    driver.find_element(By.ID, "select2-expenshead-container").click()
-    search = driver.find_element(By.CLASS_NAME, "select2-search__field")
-    search.send_keys(head)
-    time.sleep(0.5)
-    search.send_keys(Keys.RETURN)
-    
-    # Category/Comment
-    driver.find_element(By.ID, "expense_head_categoriespart").send_keys(comment)
-    # Vendor
-    select_vendor(driver, vendor)
-    
-    # Property
-    driver.find_element(By.ID, "select2-expense_villa_list-container").click()
-    search = driver.find_element(By.CLASS_NAME, "select2-search__field")
-    search.send_keys(property_name)
-    time.sleep(1)
-    search.send_keys(Keys.RETURN)
-    
-    # Cost bearer
-    # Select(driver.find_element(By.NAME, "cost_bearer")).select_by_visible_text("VISTA")
-    # Cost bearer (VISTA → fallback to SV Managed)
-    time.sleep(1)
-    select = Select(driver.find_element(By.NAME, "cost_bearer"))
+    wait = WebDriverWait(driver, 30)
 
-    vista_option = None
-    sv_option = None
+    try:
+        # Expense Type
+        log("Expense Type")
+        select2_search(driver, "select2-expensetype-container", "F&B")
 
-    for opt in select.options:
-        text = opt.text.strip()
-        if text == "VISTA":
-            vista_option = opt
-        elif text == "SV Managed":
-            sv_option = opt
+        # Expense Head
+        log("Expense Head")
+        select2_search(driver, "select2-expenshead-container", head)
 
-    # Decision logic
-    if vista_option and vista_option.is_enabled():
-        driver.find_element(By.NAME, "cost_bearer").send_keys(cost_bearer)
-    elif sv_option and sv_option.is_enabled():
-        sv_option.click()
-    else:
-        raise Exception("No valid cost bearer available (VISTA / SV Managed)")
-        # sheet logs ERROR
+        # Category / Comment
+        log("Category / Comment")
+        comment_el = wait.until(
+            EC.visibility_of_element_located((By.ID, "expense_head_categoriespart"))
+        )
+        comment_el.clear()
+        comment_el.send_keys(comment)
 
-    driver.find_element(By.ID, "invoice_number").send_keys("1")
-    # driver.find_element(By.ID, "bill_date").send_keys(now_ist.strftime("%Y-%m-%d"))
-    d = now_ist  # your datetime (IST)
+        # Vendor
+        log("Vendor")
+        select_vendor(driver, vendor)
 
-    driver.execute_script("""
-    const el = document.getElementById('bill_date');
+        # Property
+        log("Property")
+        select2_search(driver, "select2-expense_villa_list-container", property_name)
 
-    // Create date WITHOUT timezone shift
-    const fixedDate = new Date(Date.UTC(arguments[0], arguments[1]-1, arguments[2]));
+        # Cost Bearer
+        log("Cost Bearer")
+        cost_select = Select(
+            wait.until(EC.element_to_be_clickable((By.NAME, "cost_bearer")))
+        )
 
-    el.valueAsDate = fixedDate;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    """, d.year, d.month, d.day)
+        options = {opt.text.strip(): opt for opt in cost_select.options}
 
-    # Booking ID
-    driver.find_element(By.ID, "select2-bookingid_expenses-container").click()
-    search = driver.find_element(By.CLASS_NAME, "select2-search__field")
-    search.send_keys(booking_id)
-    time.sleep(0.5)
-    search.send_keys(Keys.RETURN)
-    driver.find_element(By.NAME, "quantity[]").send_keys("1")
-    driver.find_element(By.NAME, "rate_per_unit[]").send_keys(amount)
-    set_tax_percentage(driver)
-    upload_bill(driver,unqid ,booking_id, bills_folder)
-    submit = WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.NAME, "submitButton"))
-    )
-    old_url = driver.current_url
-    driver.execute_script("arguments[0].click();", submit)
-    if wait_for_redirect(driver, old_url, timeout=8):
-        return True  # ✅ success 
-    if handle_duplicate_popup(driver):
-        # After clicking YES, redirect MUST happen
-        if wait_for_redirect(driver, old_url, timeout=8):
-            return True  
-    # :white_tick: Handle duplicate popup
-    # WebDriverWait(driver, 15).until(EC.url_contains("expenses"))
-    return False
+        if cost_bearer in options and options[cost_bearer].is_enabled():
+            options[cost_bearer].click()
+        elif "SV Managed" in options and options["SV Managed"].is_enabled():
+            options["SV Managed"].click()
+        else:
+            raise Exception("No valid cost bearer available")
+
+        # Invoice number
+        log("Invoice Number")
+        wait.until(EC.visibility_of_element_located(
+            (By.ID, "invoice_number"))
+        ).send_keys("1")
+
+        # Bill date (timezone safe)
+        log("Bill Date")
+        d = now_ist
+        driver.execute_script("""
+            const el = document.getElementById('bill_date');
+            const fixedDate = new Date(Date.UTC(arguments[0], arguments[1]-1, arguments[2]));
+            el.valueAsDate = fixedDate;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        """, d.year, d.month, d.day)
+
+        # Booking ID
+        log("Booking ID")
+        select2_search(driver, "select2-bookingid_expenses-container", booking_id)
+
+        # Quantity & Rate
+        log("Quantity & Rate")
+        wait.until(EC.visibility_of_element_located(
+            (By.NAME, "quantity[]"))
+        ).send_keys("1")
+
+        wait.until(EC.visibility_of_element_located(
+            (By.NAME, "rate_per_unit[]"))
+        ).send_keys(str(amount))
+
+        # Tax
+        log("Tax")
+        set_tax_percentage(driver)
+
+        # Upload Bill
+        log("Upload Bill")
+        upload_bill(driver, unqid, booking_id, bills_folder)
+
+        # Submit
+        log("Submit Expense")
+        submit = wait.until(EC.presence_of_element_located((By.NAME, "submitButton")))
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", submit)
+        wait.until(EC.element_to_be_clickable((By.NAME, "submitButton")))
+        driver.execute_script("arguments[0].click();", submit)
+
+        old_url = driver.current_url
+
+        if wait_for_redirect(driver, old_url, timeout=12):
+            log("✅ Expense submitted successfully")
+            return True
+
+        # Duplicate popup handling
+        log("Check duplicate popup")
+        if handle_duplicate_popup(driver):
+            if wait_for_redirect(driver, old_url, timeout=12):
+                log("✅ Expense submitted after duplicate confirm")
+                return True
+
+        log("❌ Expense failed – no redirect")
+        return False
+
+    except Exception as e:
+        log(f"❌ Exception in log_expense: {e}")
+        driver.save_screenshot(f"log_expense_error_{unqid}.png")
+        raise
 
 def upload_expenses(driver, bills_data, bills_folder, gs_client):
     for row in bills_data:

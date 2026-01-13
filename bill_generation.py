@@ -563,22 +563,43 @@ def log_expense(driver,unqid, booking_id, head, comment, vendor, property_name, 
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", submit)
         wait.until(EC.element_to_be_clickable((By.NAME, "submitButton")))
         driver.execute_script("arguments[0].click();", submit)
+        
+        driver.execute_script("window.scrollTo(0, 0);")
+        time.sleep(0.5) 
 
         old_url = driver.current_url
 
-        if wait_for_redirect(driver, old_url, timeout=12):
+        # ✅ SUCCESS CONDITIONS (any one is enough)
+        try:
+            WebDriverWait(driver, 12).until(
+                EC.any_of(
+                    lambda d: d.current_url != old_url,
+                    EC.presence_of_element_located((By.CLASS_NAME, "toast-success")),
+                    EC.presence_of_element_located((By.CLASS_NAME, "alert-success")),
+                    EC.invisibility_of_element_located((By.NAME, "submitButton"))
+                )
+            )
             log("✅ Expense submitted successfully")
             return True
+        except TimeoutException:
+            pass
 
         # Duplicate popup handling
         log("Check duplicate popup")
         if handle_duplicate_popup(driver):
-            if wait_for_redirect(driver, old_url, timeout=12):
+            try:
+                WebDriverWait(driver, 10).until(
+                    EC.any_of(
+                        lambda d: d.current_url != old_url,
+                        EC.presence_of_element_located((By.CLASS_NAME, "toast-success")),
+                        EC.presence_of_element_located((By.CLASS_NAME, "alert-success"))
+                    )
+                )
                 log("✅ Expense submitted after duplicate confirm")
                 return True
+            except TimeoutException:
+                pass
 
-        log("❌ Expense failed – no redirect")
-        return False
 
     except Exception as e:
         log(f"❌ Exception in log_expense: {e}")
@@ -665,15 +686,14 @@ def generate_pdfs_from_gsheet(output_folder):
 def update_status(gs_client, text, bg_color):
     """
     Updates status text & background color in to be logged!M1
-    bg_color examples:
-      green = {"red": 0.8, "green": 1, "blue": 0.8}
-      red   = {"red": 1, "green": 0.8, "blue": 0.8}
     """
     try:
         ss = gs_client.open("vista logs")
         ws = ss.worksheet("to be logged")
 
-        ws.update("M1", text)
+        # ✅ Correct way to update single cell
+        ws.update_acell("M1", text)
+        ws.update_acell("M2", now_ist.strftime("%d-%b-%Y %I:%M %p"))
 
         sheets_service.spreadsheets().batchUpdate(
             spreadsheetId=ss.id,
@@ -685,7 +705,7 @@ def update_status(gs_client, text, bg_color):
                                 "sheetId": ws.id,
                                 "startRowIndex": 0,
                                 "endRowIndex": 1,
-                                "startColumnIndex": 12,
+                                "startColumnIndex": 12,  # Column M
                                 "endColumnIndex": 13
                             },
                             "cell": {

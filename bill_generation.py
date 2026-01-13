@@ -287,6 +287,7 @@ def setup_driver():
         }
     )
     
+
     return driver
 
 # ------------------ Login ------------------
@@ -556,6 +557,10 @@ def log_expense(driver,unqid, booking_id, head, comment, vendor, property_name, 
         # Upload Bill
         log("Upload Bill")
         upload_bill(driver, unqid, booking_id, bills_folder)
+        
+        driver.execute_script("""
+            window.__expenseSubmitSuccess = false;
+        """)
 
         # Submit
         log("Submit Expense")
@@ -563,26 +568,35 @@ def log_expense(driver,unqid, booking_id, head, comment, vendor, property_name, 
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", submit)
         wait.until(EC.element_to_be_clickable((By.NAME, "submitButton")))
         driver.execute_script("arguments[0].click();", submit)
-        
-        driver.execute_script("window.scrollTo(0, 0);")
-        time.sleep(0.5) 
 
-        old_url = driver.current_url
-
-        # ✅ SUCCESS CONDITIONS (any one is enough)
         try:
             WebDriverWait(driver, 12).until(
-                EC.any_of(
-                    lambda d: d.current_url != old_url,
-                    EC.presence_of_element_located((By.CLASS_NAME, "toast-success")),
-                    EC.presence_of_element_located((By.CLASS_NAME, "alert-success")),
-                    EC.invisibility_of_element_located((By.NAME, "submitButton"))
-                )
+                lambda d: d.execute_script("return window.__expenseSubmitSuccess === true")
             )
-            log("✅ Expense submitted successfully")
+            log("✅ Expense submitted (network confirmed)")
             return True
         except TimeoutException:
             pass
+        
+        # driver.execute_script("window.scrollTo(0, 0);")
+        # time.sleep(0.5) 
+
+        old_url = driver.current_url
+
+        # # ✅ SUCCESS CONDITIONS (any one is enough)
+        # try:
+        #     WebDriverWait(driver, 12).until(
+        #         EC.any_of(
+        #             lambda d: d.current_url != old_url,
+        #             EC.presence_of_element_located((By.CLASS_NAME, "toast-success")),
+        #             EC.presence_of_element_located((By.CLASS_NAME, "alert-success")),
+        #             EC.invisibility_of_element_located((By.NAME, "submitButton"))
+        #         )
+        #     )
+        #     log("✅ Expense submitted successfully")
+        #     return True
+        # except TimeoutException:
+        #     pass
 
         # Duplicate popup handling
         log("Check duplicate popup")
@@ -735,6 +749,9 @@ def main():
             "Logging expense to admin module",
             {"red": 0.8, "green": 1, "blue": 0.8}
         )
+        ss = gs_client.open("vista logs")
+        ws = ss.worksheet("to be logged")
+        ws.update_acell("M2", "")
 
         username = os.getenv("EMAIL")
         password = os.getenv("PASSWORD")
@@ -746,6 +763,34 @@ def main():
             raise Exception("No valid bills found")
 
         driver = setup_driver()
+        driver.execute_cdp_cmd(
+            "Page.addScriptToEvaluateOnNewDocument",
+            {
+                "source": """
+                (function() {
+                    const origFetch = window.fetch;
+                    window.fetch = function() {
+                        return origFetch.apply(this, arguments).then(res => {
+                            if (res.url.includes('/expenses') && res.status === 200) {
+                                window.__expenseSubmitSuccess = true;
+                            }
+                            return res;
+                        });
+                    };
+
+                    const origOpen = XMLHttpRequest.prototype.open;
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        this.addEventListener('load', function() {
+                            if (url.includes('/expenses') && this.status === 200) {
+                                window.__expenseSubmitSuccess = true;
+                            }
+                        });
+                        origOpen.apply(this, arguments);
+                    };
+                })();
+                """
+            }
+        )
 
         if not login_to_stayvista(driver, username, password):
             raise Exception("Login failed")

@@ -223,7 +223,7 @@ def create_invoice_pdf(unqid, booking_id, vendor_name, property_name, amount, ou
 # ------------------ Setup Driver (HEADLESS) ------------------
 def setup_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
+    # chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
@@ -384,21 +384,28 @@ def move_row_to_log(gs_client, unqid):
     source_ws = ss.worksheet("to be logged")
     log_ws = ss.worksheet("admin logs")
 
-    rows = source_ws.get_all_values()
+    rows = source_ws.get_all_values(
+        value_render_option="UNFORMATTED_VALUE"
+    )
 
-    for idx, row in enumerate(rows[1:], start=2):  # row index in sheet
-        if row and row[0].strip() == str(unqid):
-            # Append to log sheet
+    target = str(unqid).strip()
+
+    for idx, row in enumerate(rows[1:], start=2):
+        if not row:
+            continue
+
+        cell_value = str(row[0]).strip()
+
+        if cell_value == target:
             log_ws.append_row(row, value_input_option="USER_ENTERED")
-
-            # Remove from source sheet
             source_ws.delete_rows(idx)
 
-            print(f"Moved SRNO {unqid} from 'Input Dump' → 'Admin logs'")
+            print(f"Moved SRNO {unqid} from 'to be logged' → 'admin logs'")
             return True
 
-    print(f"SRNO {unqid} not found in sheet 'Input Dump'")
+    print(f"SRNO {unqid} not found in sheet 'to be logged'")
     return False
+
 
 
 def log(step):
@@ -561,10 +568,11 @@ def upload_expenses(driver, bills_data, bills_folder, gs_client):
 
 def generate_pdfs_from_gsheet(output_folder):
     worksheet = gs_client.open("vista logs").worksheet("to be logged") #Change INput sheet name here
-    rows = worksheet.get_all_values()
+    rows = worksheet.get("A:I",value_render_option="UNFORMATTED_VALUE")
 
+    print(rows)
     headers = rows[0]
-    data_rows = rows[2:]
+    data_rows = rows[1:]
 
     bill_rows = []
 
@@ -572,12 +580,12 @@ def generate_pdfs_from_gsheet(output_folder):
         row += [""] * (4 - len(row))
 
         unqid          = row[0].strip()
-        booking_id     = row[1].strip()
+        booking_id     = row[1]
         head           = row[2].strip()
         comment        = row[3].strip()
         cost_bearer    = row[4].strip()
-        amount         = row[5].strip()
-        tax            = row[6].strip()
+        amount         = row[5]
+        tax            = row[6]
         vendor_name    = row[7].strip()
         property_name  = row[8].strip()
 

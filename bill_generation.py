@@ -630,6 +630,7 @@ def upload_expenses(driver, bills_data, bills_folder, gs_client):
             print(f"✅ Expense logged for {row['booking_id']}")
         else:
             print(f"⚠️ Expense FAILED for {row['booking_id']} (unqid {row['unqid']})")
+            return False
 
         time.sleep(2)
 
@@ -749,14 +750,20 @@ def main():
         if not login_to_stayvista(driver, username, password):
             raise Exception("Login failed")
 
-        upload_expenses(driver, bills_data, bills_folder, gs_client)
+        success = upload_expenses(driver, bills_data, bills_folder, gs_client)
 
-        # ✅ SUCCESS
-        update_status(
-            gs_client,
-            "All expenses logged",
-            {"red": 0.8, "green": 1, "blue": 0.8}
-        )
+        if not success:
+            update_status(
+                gs_client,
+                "Failed to Log",
+                {"red": 1, "green": 0.8, "blue": 0.8}
+            )
+        else:
+            update_status(
+                gs_client,
+                "All expenses logged",
+                {"red": 0.8, "green": 1, "blue": 0.8}
+            )
 
     except Exception as e:
         # ❌ FAILURE

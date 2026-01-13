@@ -55,26 +55,52 @@ except:
     DEFAULT_FONT = 'Helvetica'
 
 def upload_to_drive(file_path, drive_folder_id):
+    file_name = os.path.basename(file_path)
+
+    # -------- 1. Find existing files with same name in folder --------
+    query = (
+        f"name = '{file_name}' "
+        f"and '{drive_folder_id}' in parents "
+        f"and mimeType = 'application/pdf' "
+        f"and trashed = false"
+    )
+
+    existing = drive_service.files().list(
+        q=query,
+        spaces="drive",
+        fields="files(id, name)",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True
+    ).execute().get("files", [])
+
+    # -------- 2. Delete existing files --------
+    for file in existing:
+        drive_service.files().delete(
+            fileId=file["id"],
+            supportsAllDrives=True
+        ).execute()
+        print(f"Deleted existing file: {file['name']}")
+
+    # -------- 3. Upload new file --------
     file_metadata = {
-        'name': os.path.basename(file_path),
-        'parents': [drive_folder_id]
+        "name": file_name,
+        "parents": [drive_folder_id]
     }
 
     media = MediaFileUpload(
         file_path,
-        mimetype='application/pdf',
+        mimetype="application/pdf",
         resumable=False
     )
 
     uploaded_file = drive_service.files().create(
         body=file_metadata,
         media_body=media,
-        fields='id, name',
+        fields="id, name",
         supportsAllDrives=True
     ).execute()
 
     return uploaded_file
-
 
 def create_invoice_pdf(unqid, booking_id, vendor_name, property_name, amount, output_folder):
     """
@@ -223,7 +249,7 @@ def create_invoice_pdf(unqid, booking_id, vendor_name, property_name, amount, ou
 # ------------------ Setup Driver (HEADLESS) ------------------
 def setup_driver():
     chrome_options = Options()
-    # chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
@@ -379,6 +405,7 @@ def upload_bill(driver,unqid ,booking_id, bills_folder):
         return
     driver.find_element(By.ID, "bill").send_keys(path)
     
+
 def move_row_to_log(gs_client, unqid):
     ss = gs_client.open("vista logs")
     source_ws = ss.worksheet("to be logged")
@@ -397,7 +424,17 @@ def move_row_to_log(gs_client, unqid):
         cell_value = str(row[0]).strip()
 
         if cell_value == target:
-            log_ws.append_row(row, value_input_option="USER_ENTERED")
+            # ---- prepend current date ----
+            today = now_ist.strftime("%d-%b-%Y")
+            new_row = [today] + row
+
+            # ---- append to log ----
+            log_ws.append_row(
+                new_row,
+                value_input_option="USER_ENTERED"
+            )
+
+            # ---- delete from source ----
             source_ws.delete_rows(idx)
 
             print(f"Moved SRNO {unqid} from 'to be logged' → 'admin logs'")
@@ -407,10 +444,11 @@ def move_row_to_log(gs_client, unqid):
     return False
 
 
-
 def log(step):
     print(f"➡️ {step}", flush=True)
 
+
+import time
 
 def select2_search(driver, container_id, value, timeout=25):
     wait = WebDriverWait(driver, timeout)
@@ -420,12 +458,21 @@ def select2_search(driver, container_id, value, timeout=25):
     driver.execute_script("arguments[0].scrollIntoView({block:'center'});", container)
     container.click()
 
+    time.sleep(0.6)  # ⏸ allow dropdown animation/render
+
     search = wait.until(EC.visibility_of_element_located(
         (By.CSS_SELECTOR, ".select2-container--open .select2-search__field")
     ))
+
     search.clear()
+    time.sleep(0.3)
+
     search.send_keys(value)
+    time.sleep(0.8)  # ⏸ allow results to load
+
     search.send_keys(Keys.RETURN)
+    time.sleep(0.6)  # ⏸ allow selection to apply
+
     
 # ------------------ Log Expense ------------------
 def log_expense(driver,unqid, booking_id, head, comment, vendor, property_name, amount, cost_bearer, bills_folder):
@@ -615,36 +662,98 @@ def generate_pdfs_from_gsheet(output_folder):
     return bill_rows
     
 
-def main():
-    username = os.getenv("EMAIL")
-    password = os.getenv("PASSWORD")
-    bills_folder = "/tmp/stayvista_invoices_pdf"
-    
-    print(username)
-    print(password)
-
-    os.makedirs(bills_folder, exist_ok=True)
-
-    # 1️ Generate PDFs + data from Google Sheet
-    bills_data = generate_pdfs_from_gsheet(bills_folder)
-
-    if not bills_data:
-        print("No valid bills found")
-        return
-
-    # 2 Start Selenium
-    driver = setup_driver()
-
+def update_status(gs_client, text, bg_color):
+    """
+    Updates status text & background color in to be logged!M1
+    bg_color examples:
+      green = {"red": 0.8, "green": 1, "blue": 0.8}
+      red   = {"red": 1, "green": 0.8, "blue": 0.8}
+    """
     try:
-        if not login_to_stayvista(driver, username, password):
-            return
+        ss = gs_client.open("vista logs")
+        ws = ss.worksheet("to be logged")
 
-        # 3 Upload expenses
+        ws.update("M1", text)
+
+        sheets_service.spreadsheets().batchUpdate(
+            spreadsheetId=ss.id,
+            body={
+                "requests": [
+                    {
+                        "repeatCell": {
+                            "range": {
+                                "sheetId": ws.id,
+                                "startRowIndex": 0,
+                                "endRowIndex": 1,
+                                "startColumnIndex": 12,
+                                "endColumnIndex": 13
+                            },
+                            "cell": {
+                                "userEnteredFormat": {
+                                    "backgroundColor": bg_color,
+                                    "textFormat": {
+                                        "bold": True
+                                    }
+                                }
+                            },
+                            "fields": "userEnteredFormat(backgroundColor,textFormat)"
+                        }
+                    }
+                ]
+            }
+        ).execute()
+
+    except Exception as e:
+        print("⚠️ Failed to update status cell:", e)
+
+
+def main():
+    try:
+        update_status(
+            gs_client,
+            "Logging expense to admin module",
+            {"red": 0.8, "green": 1, "blue": 0.8}
+        )
+
+        username = os.getenv("EMAIL")
+        password = os.getenv("PASSWORD")
+        bills_folder = "/tmp/stayvista_invoices_pdf"
+
+        bills_data = generate_pdfs_from_gsheet(bills_folder)
+
+        if not bills_data:
+            raise Exception("No valid bills found")
+
+        driver = setup_driver()
+
+        if not login_to_stayvista(driver, username, password):
+            raise Exception("Login failed")
+
         upload_expenses(driver, bills_data, bills_folder, gs_client)
 
+        # ✅ SUCCESS
+        update_status(
+            gs_client,
+            "All expenses logged",
+            {"red": 0.8, "green": 1, "blue": 0.8}
+        )
+
+    except Exception as e:
+        # ❌ FAILURE
+        update_status(
+            gs_client,
+            "Failed to Log",
+            {"red": 1, "green": 0.8, "blue": 0.8}
+        )
+        print("❌ Script failed:", e)
+        raise
+
     finally:
-        driver.quit()
-        print("Browser closed")
+        try:
+            driver.quit()
+        except:
+            pass
+
 
 if __name__ == "__main__":
     main()

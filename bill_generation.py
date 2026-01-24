@@ -249,7 +249,7 @@ def create_invoice_pdf(unqid, booking_id, vendor_name, property_name, amount, ou
 # ------------------ Setup Driver (HEADLESS) ------------------
 def setup_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
+    # chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
@@ -449,8 +449,6 @@ def log(step):
     print(f"➡️ {step}", flush=True)
 
 
-import time
-
 def select2_search(driver, container_id, value, timeout=25):
     wait = WebDriverWait(driver, timeout)
 
@@ -474,9 +472,22 @@ def select2_search(driver, container_id, value, timeout=25):
     search.send_keys(Keys.RETURN)
     time.sleep(0.6)  # ⏸ allow selection to apply
 
+def is_expense_success_redirect(driver):
+    return driver.current_url.rstrip("/").endswith("/expenses")
+
+def is_duplicate_popup_present(driver):
+    try:
+        driver.find_element(
+            By.XPATH,
+            "//button[contains(text(),'Confirm') or contains(text(),'Yes')]"
+        )
+        return True
+    except:
+        return False
     
 # ------------------ Log Expense ------------------
-def log_expense(driver,unqid, booking_id, head, comment, vendor, property_name, amount, cost_bearer, bills_folder):
+def log_expense(driver, unqid, booking_id, head, comment, vendor, property_name, amount, cost_bearer, bills_folder):
+
     wait = WebDriverWait(driver, 30)
 
     try:
@@ -521,11 +532,11 @@ def log_expense(driver,unqid, booking_id, head, comment, vendor, property_name, 
 
         # Invoice number
         log("Invoice Number")
-        wait.until(EC.visibility_of_element_located(
-            (By.ID, "invoice_number"))
+        wait.until(
+            EC.visibility_of_element_located((By.ID, "invoice_number"))
         ).send_keys("1")
 
-        # Bill date (timezone safe)
+        # Bill date
         log("Bill Date")
         d = now_ist
         driver.execute_script("""
@@ -542,12 +553,12 @@ def log_expense(driver,unqid, booking_id, head, comment, vendor, property_name, 
 
         # Quantity & Rate
         log("Quantity & Rate")
-        wait.until(EC.visibility_of_element_located(
-            (By.NAME, "quantity[]"))
+        wait.until(
+            EC.visibility_of_element_located((By.NAME, "quantity[]"))
         ).send_keys("1")
 
-        wait.until(EC.visibility_of_element_located(
-            (By.NAME, "rate_per_unit[]"))
+        wait.until(
+            EC.visibility_of_element_located((By.NAME, "rate_per_unit[]"))
         ).send_keys(str(amount))
 
         # Tax
@@ -557,63 +568,43 @@ def log_expense(driver,unqid, booking_id, head, comment, vendor, property_name, 
         # Upload Bill
         log("Upload Bill")
         upload_bill(driver, unqid, booking_id, bills_folder)
-        
-        driver.execute_script("""
-            window.__expenseSubmitSuccess = false;
-        """)
 
-        # Submit
-        log("Submit Expense")
-        submit = wait.until(EC.presence_of_element_located((By.NAME, "submitButton")))
-        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", submit)
-        wait.until(EC.element_to_be_clickable((By.NAME, "submitButton")))
-        driver.execute_script("arguments[0].click();", submit)
-
-        try:
-            WebDriverWait(driver, 12).until(
-                lambda d: d.execute_script("return window.__expenseSubmitSuccess === true")
-            )
-            log("✅ Expense submitted (network confirmed)")
-            return True
-        except TimeoutException:
-            pass
-        
-        # driver.execute_script("window.scrollTo(0, 0);")
-        # time.sleep(0.5) 
-
+        # ---------- SUBMIT ----------
         old_url = driver.current_url
 
-        # # ✅ SUCCESS CONDITIONS (any one is enough)
-        # try:
-        #     WebDriverWait(driver, 12).until(
-        #         EC.any_of(
-        #             lambda d: d.current_url != old_url,
-        #             EC.presence_of_element_located((By.CLASS_NAME, "toast-success")),
-        #             EC.presence_of_element_located((By.CLASS_NAME, "alert-success")),
-        #             EC.invisibility_of_element_located((By.NAME, "submitButton"))
-        #         )
-        #     )
-        #     log("✅ Expense submitted successfully")
-        #     return True
-        # except TimeoutException:
-        #     pass
+        log("Submit Expense")
+        submit = wait.until(EC.element_to_be_clickable((By.NAME, "submitButton")))
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", submit)
+        driver.execute_script("arguments[0].click();", submit)
 
-        # Duplicate popup handling
-        log("Check duplicate popup")
-        if handle_duplicate_popup(driver):
-            try:
+        # ---------- WAIT FOR RESULT ----------
+        log("Waiting for submit result")
+
+        WebDriverWait(driver, 12).until(
+            lambda d: (
+                is_expense_success_redirect(d)
+                or is_duplicate_popup_present(d)
+            )
+        )
+
+        # ---------- SUCCESS VIA REDIRECT ----------
+        if is_expense_success_redirect(driver):
+            log("✅ Expense submitted (redirect detected)")
+            return True
+
+        # ---------- DUPLICATE POPUP FLOW ----------
+        if is_duplicate_popup_present(driver):
+            log("Duplicate popup detected, confirming")
+
+            if handle_duplicate_popup(driver):
                 WebDriverWait(driver, 10).until(
-                    EC.any_of(
-                        lambda d: d.current_url != old_url,
-                        EC.presence_of_element_located((By.CLASS_NAME, "toast-success")),
-                        EC.presence_of_element_located((By.CLASS_NAME, "alert-success"))
-                    )
+                    lambda d: is_expense_success_redirect(d)
                 )
-                log("✅ Expense submitted after duplicate confirm")
+                log("✅ Expense submitted after duplicate confirmation")
                 return True
-            except TimeoutException:
-                pass
 
+        log("❌ Submit attempted but no success signal detected")
+        return False
 
     except Exception as e:
         log(f"❌ Exception in log_expense: {e}")
